@@ -1,26 +1,83 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.orm import Session
 
+from database import SessionLocal, engine
+from models import Student
+from schemas import StudentCreate, StudentResponse
+from database import Base
 
-app = FastAPI(title = "SOL-Mehrab_API", version = "2.0.2.6")
+# Create database tables
+Base.metadata.create_all(bind=engine)
 
+app = FastAPI()
 
-# Pydantic model - the data shape
-class iteam(BaseModel):
-    name: str
-    price: float
-    in_stock: bool = True
+# Dependency for DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
+# Home route
+@app.get("/")
+def home():
+    return {"message": "Student CRUD API"}
 
-# get [read data]
+# CREATE student
+@app.post("/students/", response_model=StudentResponse)
+def create_student(student: StudentCreate, db: Session = Depends(get_db)):
+    new_student = Student(
+        name=student.name,
+        age=student.age,
+        department=student.department
+    )
+    db.add(new_student)
+    db.commit()
+    db.refresh(new_student)
+    return new_student
 
-@app.get("/iteams/{item_id}")
+# READ all students
+@app.get("/students/")
+def get_students(db: Session = Depends(get_db)):
+    return db.query(Student).all()
 
-async def get_iteam(iteam_id: str, q: str | None = None):
-    return {"iteam_id": iteam_id, "query": q}
+# READ one student
+@app.get("/students/{student_id}")
+def get_student(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(Student).filter(Student.id == student_id).first()
 
-# post [receive + validate]
-@app.post("/items/", status_code = 201)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
 
-async def create_item(item: iteam):
-    return item
+    return student
+
+# UPDATE student
+@app.put("/students/{student_id}")
+def update_student(student_id: int, updated_data: StudentCreate, db: Session = Depends(get_db)):
+    student = db.query(Student).filter(Student.id == student_id).first()
+
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    student.name = updated_data.name
+    student.age = updated_data.age
+    student.department = updated_data.department
+
+    db.commit()
+    db.refresh(student)
+
+    return {"message": "Updated successfully", "data": student}
+
+# DELETE student
+@app.delete("/students/{student_id}")
+def delete_student(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(Student).filter(Student.id == student_id).first()
+
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    db.delete(student)
+    db.commit()
+
+    return {"message": "Deleted successfully"}
